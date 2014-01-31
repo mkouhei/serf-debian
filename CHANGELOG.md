@@ -12,7 +12,8 @@ FEATURES:
  to find peers. [GH-53]
 
  * Serf collects telemetry information and simple runtime profiling. Stats can
- be dumped to stderr by sending a `USR1` signal to Serf. [GH-103]
+ be dumped to stderr by sending a `USR1` signal to Serf. Windows users must use
+ the `BREAK` signal instead. [GH-103]
 
  * `advertise` flag can be used to set a advertise address different
  from the bind address. Used for NAT traversal. Thanks to @benagricola [GH-93]
@@ -24,7 +25,14 @@ IMPROVEMENTS:
 
  * User payload always appends a newline when invoking a shell script
 
+ * Severify of "Potential blocking operation" reduced to debug to prevent
+ spurious messages on slow or busy machines.
+
 BUG FIXES:
+
+ * If a agent is restarted with the same bind address but new name, it
+ no will not respond to the old name, causing the old name to enter the
+ `failed` state, instead of having duplicate entries in the `alive` state.
 
  * `leave_on_interrupt` set to false when not specified, if
  any config file is provided. This flag is deprecated for
@@ -34,6 +42,9 @@ MISC:
 
   * `-role` configuration has been deprecated in favor of `-tag role=foo`.
   The flag is still supported but will generate warnings.
+
+  * Support for protocol version 0 (Serf 0.1) has been removed. Serf 0.4 cannot
+  join a cluster that has members running version 0.1.
 
 ## 0.3.0 (December 5, 2013)
 
