@@ -1,0 +1,35 @@
+#!/usr/bin/make -f
+# -*- makefile -*-
+
+# Uncomment this to turn on verbose mode.
+#export DH_VERBOSE=1
+
+export DH_GOPKG := github.com/hashicorp/serf
+GOPATH := /usr/share/gocode:${CURDIR}/_build
+BLDPATH := obj-$(shell dpkg-architecture -qDEB_BUILD_GNU_TYPE)
+
+export GOPATH
+
+%:
+	dh $@ --buildsystem=golang --with=golang
+
+override_dh_auto_build:
+	mkdir -p ${CURDIR}/_build/src/${DH_GOPKG}
+	cp -a ${CURDIR}/*.go ${CURDIR}/serf ${CURDIR}/website ${CURDIR}/client \
+		${CURDIR}/command ${CURDIR}/testutil ${CURDIR}/_build/src/${DH_GOPKG}/
+	go build -v -o ${CURDIR}/_build/serf
+
+
+override_dh_auto_install:
+	install -d ${CURDIR}/debian/golang-serf-dev
+	dh_auto_install -O-buildsystem=golang --destdir=${CURDIR}/debian/golang-serf-dev/
+
+	install -d ${CURDIR}/debian/serf/usr/bin
+	test -f ${CURDIR}/_build/serf && \
+	install -m 0755 ${CURDIR}/_build/serf ${CURDIR}/debian/serf/usr/bin/
+
+override_dh_auto_clean:
+	dh_clean
+	rm -rf ${CURDIR}/_build
+	rm -rf ${CURDIR}/${BLDPATH}
+
