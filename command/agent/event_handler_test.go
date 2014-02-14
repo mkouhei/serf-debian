@@ -94,9 +94,10 @@ func TestScriptEventHandler(t *testing.T) {
 		t.Fatalf("err: %s", err)
 	}
 
-	expected := "ourname ourrole\neast-aws\nmember-join\nfoo\t1.2.3.4\tbar\trole=bar,foo=bar\n"
-	if string(result) != expected {
-		t.Fatalf("bad: %#v. Expected: %#v", string(result), expected)
+	expected1 := "ourname ourrole\neast-aws\nmember-join\nfoo\t1.2.3.4\tbar\trole=bar,foo=bar\n"
+	expected2 := "ourname ourrole\neast-aws\nmember-join\nfoo\t1.2.3.4\tbar\tfoo=bar,role=bar\n"
+	if string(result) != expected1 && string(result) != expected2 {
+		t.Fatalf("bad: %#v. Expected: %#v or %v", string(result), expected1, expected2)
 	}
 }
 
@@ -132,7 +133,7 @@ func TestScriptUserEventHandler(t *testing.T) {
 		t.Fatalf("err: %s", err)
 	}
 
-	expected := "ourname ourrole\neast-aws\nuser baz\nuser 1\n"
+	expected := "ourname ourrole\neast-aws\nuser baz\nuser 1\nfoobar\n"
 	if string(result) != expected {
 		t.Fatalf("bad: %#v. Expected: %#v", string(result), expected)
 	}
@@ -192,6 +193,7 @@ func TestEventScriptValid(t *testing.T) {
 		{"member-join", true},
 		{"member-leave", true},
 		{"member-failed", true},
+		{"member-update", true},
 		{"user", true},
 		{"User", false},
 		{"member", false},

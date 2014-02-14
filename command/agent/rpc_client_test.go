@@ -64,13 +64,22 @@ func TestRPCClientForceLeave(t *testing.T) {
 		t.Fatalf("err: %s", err)
 	}
 
-	time.Sleep(a1.conf.MemberlistConfig.ProbeInterval * 7)
+	start := time.Now()
+WAIT:
+	time.Sleep(a1.conf.MemberlistConfig.ProbeInterval * 3)
+	m := a1.Serf().Members()
+	if len(m) != 2 {
+		t.Fatalf("should have 2 members: %#v", a1.Serf().Members())
+	}
+	if m[1].Status != serf.StatusFailed && time.Now().Sub(start) < 3*time.Second {
+		goto WAIT
+	}
 
 	if err := client.ForceLeave(a2.conf.NodeName); err != nil {
 		t.Fatalf("err: %s", err)
 	}
 
-	m := a1.Serf().Members()
+	m = a1.Serf().Members()
 	if len(m) != 2 {
 		t.Fatalf("should have 2 members: %#v", a1.Serf().Members())
 	}
@@ -391,5 +400,50 @@ func TestRPCClientStream_Member(t *testing.T) {
 
 	default:
 		t.Fatalf("should have event")
+	}
+}
+
+func TestRPCClientUpdateTags(t *testing.T) {
+	client, a1, ipc := testRPCClient(t)
+	defer ipc.Shutdown()
+	defer client.Close()
+	defer a1.Shutdown()
+
+	if err := a1.Start(); err != nil {
+		t.Fatalf("err: %s", err)
+	}
+
+	testutil.Yield()
+
+	mem, err := client.Members()
+	if err != nil {
+		t.Fatalf("err: %s", err)
+	}
+
+	if len(mem) != 1 {
+		t.Fatalf("bad: %#v", mem)
+	}
+
+	m0 := mem[0]
+	if _, ok := m0.Tags["testing"]; ok {
+		t.Fatalf("have testing tag")
+	}
+
+	if err := client.UpdateTags(map[string]string{"testing": "1"}, nil); err != nil {
+		t.Fatalf("err: %s", err)
+	}
+
+	mem, err = client.Members()
+	if err != nil {
+		t.Fatalf("err: %s", err)
+	}
+
+	if len(mem) != 1 {
+		t.Fatalf("bad: %#v", mem)
+	}
+
+	m0 = mem[0]
+	if _, ok := m0.Tags["testing"]; !ok {
+		t.Fatalf("missing testing tag")
 	}
 }
