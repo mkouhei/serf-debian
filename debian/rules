@@ -19,6 +19,11 @@ override_dh_auto_build:
 		${CURDIR}/command ${CURDIR}/testutil ${CURDIR}/_build/src/${DH_GOPKG}/
 	go build -v -o ${CURDIR}/_build/serf
 
+override_dh_auto_test:
+	cd $(CURDIR)/_build && \
+	go list ./... | xargs -n1 go test && \
+	$(CURDIR)/scripts/setup_test_subnet.sh && \
+	go list ./... | INTEG_TESTS=yes xargs -n1 go test
 
 override_dh_auto_install:
 	install -d ${CURDIR}/debian/golang-serf-dev
