@@ -1,5 +1,5 @@
-serf (0.4.1~git20140203+21113c8-1) unstable; urgency=low
+serf (0.4.1~git20140212+8ec80b9-1) unstable; urgency=low
 
   * Initial release (Closes: #nnnn)
 
- -- Kouhei Maeda <mkouhei@palmtb.net>  Tue, 04 Feb 2014 22:49:24 +0900
+ -- Kouhei Maeda <mkouhei@palmtb.net>  Fri, 14 Feb 2014 20:49:55 +0900
