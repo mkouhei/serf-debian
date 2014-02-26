@@ -10,6 +10,7 @@ import (
 	"log"
 	"math/rand"
 	"net"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -287,6 +288,7 @@ func Create(conf *Config) (*Serf, error) {
 
 	// Modify the memberlist configuration with keys that we set
 	conf.MemberlistConfig.Events = &eventDelegate{serf: serf}
+	conf.MemberlistConfig.Conflict = &conflictDelegate{serf: serf}
 	conf.MemberlistConfig.Delegate = &delegate{serf: serf}
 	conf.MemberlistConfig.DelegateProtocolVersion = conf.ProtocolVersion
 	conf.MemberlistConfig.DelegateProtocolMin = ProtocolVersionMin
@@ -941,6 +943,22 @@ func (s *Serf) handleUserEvent(eventMsg *messageUserEvent) bool {
 	return true
 }
 
+// handleNodeConflict is invoked when a join detects a conflict over a name.
+// This means two different nodes (IP/Port) are claiming the same name. Memberlist
+// will reject the "new" node mapping, but we can still be notified
+func (s *Serf) handleNodeConflict(existing, other *memberlist.Node) {
+	// Log a basic warning if the node is not us...
+	if existing.Name != s.config.NodeName {
+		s.logger.Printf("[WARN] Name conflict for '%s' both %s:%d and %s:%d are claiming",
+			existing.Name, existing.Addr, existing.Port, other.Addr, other.Port)
+		return
+	}
+
+	// The current node is conflicting! This is an error
+	s.logger.Printf("[ERR] Node name conflicts with another node at %s:%d. Names must be unique!",
+		other.Addr, other.Port)
+}
+
 // handleReap periodically reaps the list of failed and left members.
 func (s *Serf) handleReap() {
 	for {
@@ -1147,4 +1165,21 @@ func (s *Serf) decodeTags(buf []byte) map[string]string {
 		s.logger.Printf("[ERR] Failed to decode tags: %v", err)
 	}
 	return tags
+}
+
+// Stats is used to provide operator debugging information
+func (s *Serf) Stats() map[string]string {
+	toString := func(v uint64) string {
+		return strconv.FormatUint(v, 10)
+	}
+	stats := map[string]string{
+		"members":      toString(uint64(len(s.members))),
+		"failed":       toString(uint64(len(s.failedMembers))),
+		"left":         toString(uint64(len(s.leftMembers))),
+		"member-time":  toString(uint64(s.clock.Time())),
+		"event-time":   toString(uint64(s.eventClock.Time())),
+		"intent-queue": toString(uint64(s.broadcasts.NumQueued())),
+		"event-queue":  toString(uint64(s.eventBroadcasts.NumQueued())),
+	}
+	return stats
 }
