@@ -1,17 +1,17 @@
-Source: serf
+Source: golang-serf
 Section: web
 Priority: optional
 Maintainer: Kouhei Maeda <mkouhei@palmtb.net>
 Build-Depends: debhelper (>= 9.0.0),
 	dh-golang,
 	golang-go (>= 2:1.2),
-	golang-memberlist-dev, 
-	golang-cli-dev,
-	golang-logutils-dev,
-	golang-mapstructure-dev,
-	golang-codec-dev,
-	golang-mdns-dev (>= 0.0~git20140225~8be7e3a),
-	golang-columnize-dev
+	golang-hashicorp-memberlist-dev,
+	golang-mitchellh-cli-dev,
+	golang-hashicorp-logutils-dev,
+	golang-mitchellh-mapstructure-dev,
+	golang-ugorji-go-dev,
+	golang-armon-mdns-dev (>= 0.0~git20140225~8be7e3a),
+	golang-ryanuber-columnize-dev
 Standards-Version: 3.9.5
 Homepage: http://www.serfdom.io/
 
