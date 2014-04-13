@@ -5,7 +5,7 @@
 #export DH_VERBOSE=1
 
 export DH_GOPKG := github.com/hashicorp/serf
-GOPATH := /usr/share/gocode:${CURDIR}/_build
+GOPATH := ${CURDIR}/_build:/usr/share/gocode
 BLDPATH := obj-$(shell dpkg-architecture -qDEB_BUILD_GNU_TYPE)
 
 export GOPATH
