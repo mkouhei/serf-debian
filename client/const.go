@@ -3,6 +3,7 @@ package client
 import (
 	"github.com/hashicorp/serf/serf"
 	"net"
+	"time"
 )
 
 const (
@@ -10,16 +11,20 @@ const (
 )
 
 const (
-	handshakeCommand  = "handshake"
-	eventCommand      = "event"
-	forceLeaveCommand = "force-leave"
-	joinCommand       = "join"
-	membersCommand    = "members"
-	streamCommand     = "stream"
-	stopCommand       = "stop"
-	monitorCommand    = "monitor"
-	leaveCommand      = "leave"
-	tagsCommand       = "tags"
+	handshakeCommand       = "handshake"
+	eventCommand           = "event"
+	forceLeaveCommand      = "force-leave"
+	joinCommand            = "join"
+	membersCommand         = "members"
+	membersFilteredCommand = "members-filtered"
+	streamCommand          = "stream"
+	stopCommand            = "stop"
+	monitorCommand         = "monitor"
+	leaveCommand           = "leave"
+	tagsCommand            = "tags"
+	queryCommand           = "query"
+	respondCommand         = "respond"
+	authCommand            = "auth"
 )
 
 const (
@@ -30,6 +35,15 @@ const (
 	monitorExists         = "Monitor already exists"
 	invalidFilter         = "Invalid event filter"
 	streamExists          = "Stream with given sequence exists"
+	invalidQueryID        = "No pending queries matching ID"
+	authRequired          = "Authentication required"
+	invalidAuthToken      = "Invalid authentication token"
+)
+
+const (
+	queryRecordAck      = "ack"
+	queryRecordResponse = "response"
+	queryRecordDone     = "done"
 )
 
 // Request header is sent before each request
@@ -46,6 +60,10 @@ type responseHeader struct {
 
 type handshakeRequest struct {
 	Version int32
+}
+
+type authRequest struct {
+	AuthKey string
 }
 
 type eventRequest struct {
@@ -67,6 +85,12 @@ type joinResponse struct {
 	Num int32
 }
 
+type membersFilteredRequest struct {
+	Tags   map[string]string
+	Status string
+	Name   string
+}
+
 type membersResponse struct {
 	Members []Member
 }
@@ -86,6 +110,32 @@ type stopRequest struct {
 type tagsRequest struct {
 	Tags       map[string]string
 	DeleteTags []string
+}
+
+type queryRequest struct {
+	FilterNodes []string
+	FilterTags  map[string]string
+	RequestAck  bool
+	Timeout     time.Duration
+	Name        string
+	Payload     []byte
+}
+
+type respondRequest struct {
+	ID      uint64
+	Payload []byte
+}
+
+type queryRecord struct {
+	Type    string
+	From    string
+	Payload []byte
+}
+
+// NodeResponse is used to return the response of a query
+type NodeResponse struct {
+	From    string
+	Payload []byte
 }
 
 type logRecord struct {

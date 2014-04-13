@@ -241,6 +241,16 @@ func (c *Command) setupAgent(config *Config, logOutput io.Writer) *Agent {
 	serfConfig.QuiescentPeriod = time.Second
 	serfConfig.UserCoalescePeriod = 3 * time.Second
 	serfConfig.UserQuiescentPeriod = time.Second
+	if config.ReconnectInterval != 0 {
+		serfConfig.ReconnectInterval = config.ReconnectInterval
+	}
+	if config.ReconnectTimeout != 0 {
+		serfConfig.ReconnectTimeout = config.ReconnectTimeout
+	}
+	if config.TombstoneTimeout != 0 {
+		serfConfig.TombstoneTimeout = config.TombstoneTimeout
+	}
+	serfConfig.EnableNameConflictResolution = !config.DisableNameResolution
 
 	// Start Serf
 	c.Ui.Output("Starting Serf agent...")
@@ -282,12 +292,9 @@ func (c *Command) startAgent(config *Config, agent *Agent,
 	logWriter *logWriter, logOutput io.Writer) *AgentIPC {
 	// Add the script event handlers
 	c.scriptHandler = &ScriptEventHandler{
-		Self: serf.Member{
-			Name: config.NodeName,
-			Tags: config.Tags,
-		},
-		Scripts: config.EventScripts(),
-		Logger:  log.New(logOutput, "", log.LstdFlags),
+		SelfFunc: func() serf.Member { return agent.Serf().LocalMember() },
+		Scripts:  config.EventScripts(),
+		Logger:   log.New(logOutput, "", log.LstdFlags),
 	}
 	agent.RegisterEventHandler(c.scriptHandler)
 
@@ -327,7 +334,7 @@ func (c *Command) startAgent(config *Config, agent *Agent,
 
 	// Start the IPC layer
 	c.Ui.Output("Starting Serf agent RPC...")
-	ipc := NewAgentIPC(agent, rpcListener, logOutput, logWriter)
+	ipc := NewAgentIPC(agent, config.RPCAuthKey, rpcListener, logOutput, logWriter)
 
 	c.Ui.Output("Serf agent running!")
 	c.Ui.Info(fmt.Sprintf("     Node name: '%s'", config.NodeName))
@@ -517,9 +524,6 @@ func (c *Command) handleReload(config *Config, agent *Agent) *Config {
 		c.Ui.Error(fmt.Sprintf("Failed to update tags: %v", err))
 		return newConf
 	}
-
-	// Change the tags for the event handlers
-	c.scriptHandler.Self.Tags = newConf.Tags
 
 	return newConf
 }

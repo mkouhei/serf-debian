@@ -1,3 +1,53 @@
+## 0.5.0 (March 12, 2014)
+
+FEATURES:
+
+ * New `query` command provides a request/response mechanism to do realtime
+ queries across the cluster. [GH-139]
+
+ * Automatic conflict resolution. Serf will detect name conflicts, and use an
+ internal query to determine which node is in the minority and perform a shutdown.
+ [GH-167] [GH-119]
+
+ * New `reachability` command can be used to help diagnose network and configuration
+ issues.
+
+ * Added `member-reap` event to get notified of when Serf removes a failed or left
+ node from the cluster. The reap interval is controlled by `reconnect_timeout` and
+ `tombstone_timeout` respectively. [GH-172]
+
+IMPROVEMENTS:
+
+ * New Recipes section on the site to share Serf tips. Thanks to @ryanuber. [GH-177]
+
+ * `members` command has new `-name` filter flag. Thanks to @ryanuber [GH-164]
+
+ * New RPC command "members-filtered" to move filtering logic to the agent.
+ Thanks to @ryanuber. [GH-149]
+
+ * `reconnect_interval` and `reconnect_timeout` can be provided to configure
+ agent behavior for attempting to reconnect to failed nodes. [GH-155]
+
+ * `tombstone_interval` can be provided to configure the reap time for nodes
+ that have gracefully left. [GH_172]
+
+ * Agent can be provided `rpc_auth` config to require that RPC is authenticated.
+ All commands can take a `-rpc-auth` flag now. [GH-148]
+
+BUG FIXES:
+
+ * Fixed config folder in Upstart script. Thanks to @llchen223. [GH-174]
+
+ * Event handlers are correctly invoked when BusyBox is the shell. [GH-156]
+
+ * Event handlers were not being invoked with the correct SERF_TAG_* values
+ if tags were changed using the `tags` command. [GH-169]
+
+MISC:
+
+  * Support for protocol version 1 (Serf 0.2) has been removed. Serf 0.5 cannot
+  join a cluster that has members running version 0.2.
+
 ## 0.4.5 (Febuary 25, 2014)
 
 FEATURES:

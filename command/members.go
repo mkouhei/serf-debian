@@ -7,7 +7,6 @@ import (
 	"github.com/mitchellh/cli"
 	"github.com/ryanuber/columnize"
 	"net"
-	"regexp"
 	"strings"
 )
 
@@ -71,79 +70,70 @@ Options:
   -format                   If provided, output is returned in the specified
                             format. Valid formats are 'json', and 'text' (default)
 
+  -name=<regexp>            If provided, only members matching the regexp are
+                            returned.
+
   -role=<regexp>            If provided, output is filtered to only nodes matching
                             the regular expression for role
                             '-role' is deprecated in favor of '-tag role=foo'.
 
-  -rpc-addr=127.0.0.1:7373  RPC address of the Serf agent.
-
-  -status=<regexp>			If provided, output is filtered to only nodes matching
+  -status=<regexp>          If provided, output is filtered to only nodes matching
                             the regular expression for status
 
   -tag <key>=<regexp>       If provided, output is filtered to only nodes with the
                             tag <key> with value matching the regular expression.
                             tag can be specified multiple times to filter on
                             multiple keys.
+
+  -rpc-addr=127.0.0.1:7373  RPC address of the Serf agent.
+
+  -rpc-auth=""              RPC auth token of the Serf agent.
 `
 	return strings.TrimSpace(helpText)
 }
 
 func (c *MembersCommand) Run(args []string) int {
 	var detailed bool
-	var roleFilter, statusFilter, format string
+	var roleFilter, statusFilter, nameFilter, format string
 	var tags []string
-	var tagRes map[string](*regexp.Regexp)
 	cmdFlags := flag.NewFlagSet("members", flag.ContinueOnError)
 	cmdFlags.Usage = func() { c.Ui.Output(c.Help()) }
 	cmdFlags.BoolVar(&detailed, "detailed", false, "detailed output")
-	cmdFlags.StringVar(&roleFilter, "role", ".*", "role filter")
-	cmdFlags.StringVar(&statusFilter, "status", ".*", "status filter")
+	cmdFlags.StringVar(&roleFilter, "role", "", "role filter")
+	cmdFlags.StringVar(&statusFilter, "status", "", "status filter")
 	cmdFlags.StringVar(&format, "format", "text", "output format")
 	cmdFlags.Var((*agent.AppendSliceValue)(&tags), "tag", "tag filter")
+	cmdFlags.StringVar(&nameFilter, "name", "", "name filter")
 	rpcAddr := RPCAddrFlag(cmdFlags)
+	rpcAuth := RPCAuthFlag(cmdFlags)
 	if err := cmdFlags.Parse(args); err != nil {
 		return 1
 	}
 
 	// Deprecation warning for role
-	if roleFilter != ".*" {
+	if roleFilter != "" {
 		c.Ui.Output("Deprecation warning: 'Role' has been replaced with 'Tags'")
+		tags = append(tags, fmt.Sprintf("role=%s", roleFilter))
 	}
 
-	// Compile the regexp
-	roleRe, err := regexp.Compile(roleFilter)
-	if err != nil {
-		c.Ui.Error(fmt.Sprintf("Failed to compile role regexp: %v", err))
-		return 1
-	}
-	statusRe, err := regexp.Compile(statusFilter)
-	if err != nil {
-		c.Ui.Error(fmt.Sprintf("Failed to compile status regexp: %v", err))
-		return 1
-	}
-	tagRes = make(map[string](*regexp.Regexp))
+	reqtags := make(map[string]string)
 	for _, tag := range tags {
 		parts := strings.SplitN(tag, "=", 2)
 		if len(parts) != 2 {
 			c.Ui.Error(fmt.Sprintf("Invalid tag '%s' provided", tag))
 			return 1
 		}
-		tagRe, err := regexp.Compile(parts[1])
-		if err != nil {
-			c.Ui.Error(fmt.Sprintf("Failed to compile status regexp: %v", err))
-			return 1
-		}
-		tagRes[parts[0]] = tagRe
+		reqtags[parts[0]] = parts[1]
 	}
 
-	client, err := RPCClient(*rpcAddr)
+	client, err := RPCClient(*rpcAddr, *rpcAuth)
 	if err != nil {
 		c.Ui.Error(fmt.Sprintf("Error connecting to Serf agent: %s", err))
 		return 1
 	}
 	defer client.Close()
 
-	members, err := client.Members()
+	members, err := client.MembersFiltered(reqtags, statusFilter, nameFilter)
 	if err != nil {
 		c.Ui.Error(fmt.Sprintf("Error retrieving members: %s", err))
 		return 1
@@ -152,19 +142,6 @@ func (c *MembersCommand) Run(args []string) int {
 	result := MemberContainer{}
 
 	for _, member := range members {
-		allTagsMatch := true
-		for tag, re := range tagRes {
-			value, ok := member.Tags[tag]
-			if !ok || !re.MatchString(value) {
-				allTagsMatch = false
-			}
-		}
-
-		// Skip the non-matching members
-		if !allTagsMatch || !roleRe.MatchString(member.Tags["role"]) || !statusRe.MatchString(member.Status) {
-			continue
-		}
-
 		addr := net.TCPAddr{IP: member.Addr, Port: int(member.Port)}
 
 		result.Members = append(result.Members, Member{

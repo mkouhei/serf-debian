@@ -48,14 +48,19 @@ All responses may be accompanied by an error.
 Possible commands include:
 
 * handshake - Used to initialize the connection, set the version
+* auth - Used to authenticate a client
 * event - Fires a new user event
 * force-leave - Removes a failed node from the cluster
 * join - Requests Serf join another node
 * members - Returns the list of members
+* members-filtered - Returns a subset of members
+* tags - Modifies tags on a running Serf agent
 * stream - Starts streaming events over the connection
 * monitor - Starts streaming logs over the connection
 * stop - Stops streaming logs or events
 * leave - Serf agent performs a graceful leave and shutdown
+* query - Initiates a new query
+* respond - Responds to an incoming query
 
 Below each command is documented along with any request or
 response body that is applicable.
@@ -77,6 +82,20 @@ in the future.
 
 There is no special response body, but the client should wait for the
 response and check for an error.
+
+### auth
+
+If the agent is configured to use an auth key, then the client must
+issue an `auth` command after the handshake is complete.
+
+The auth request body looks like:
+
+```
+    {"AuthKey": "my-secret-auth-token"}
+```
+
+The `AuthKey` must be provided and is the authorization key.
+There is no special response body.
 
 ### event
 
@@ -148,6 +167,36 @@ information. There is no request body, but the response looks like:
     }
 ```
 
+### members-filtered
+
+The members-filtered command is used to return a subset of the known members
+based on their metadata. It takes the following body:
+
+```
+    {"Tags": {"key": "val"}, "Status": "alive", "Name": "node1"}
+```
+
+`Tags` are used to filter nodes based on tag values. `Status` is used to filter
+nodes based on operational status. `Name` is used to filter based on node names.
+Both `Name` and `Status`, as well as all `Tags` values, can contain regular
+expression patterns.
+
+Note that regular expression patterns will automatically be placed between start
+(`^`) and end (`$`) anchors.
+
+The response will be in the same format as the `members` command.
+
+### tags
+
+The tags command is used to alter the tags on a Serf agent while it is running.
+A `member-update` event will be triggered immediately to notify the other agents
+in the cluster of the change. The tags command can add new tags, modify existing
+tags, or delete tags. The request body looks like:
+
+```
+    {"Tags": {"tag1": "val1"}, "DeleteTags": ["tag2"]}
+```
+
 ### stream
 
 The stream command is used to subscribe to a stream of all events
@@ -200,6 +249,15 @@ we may start getting messages like:
             },
             ...
         ]
+    }
+
+    {"Seq": 50, "Error": ""}
+    {
+        "Event": "query",
+        "ID": 1023,
+        "LTime": 125,
+        "Name": "load",
+        "Payload": "15m",
     }
 ```
 
@@ -267,4 +325,72 @@ There is no special response body.
 
 The leave command is used trigger a graceful leave and shutdown.
 There is no request body, or special response body.
+
+### query
+
+The query command is used to issue a new query. It takes the following request body:
+
+```
+    {
+        "FilterNodes": ["foo", "bar"],
+        "FilterTags": {"role": ".*web.*"},
+	    "RequestAck": true,
+        "Timeout": 0,
+        "Name": "load",
+        "Payload": "15m",
+    }
+```
+
+The `Name` is a string, but `Payload` is just opaque bytes. The remaining fields are
+optional. `FilterNodes` is used to restrict the nodes that should respond to only
+those named. `FilterTags` is used to filter tags using a regular expression on each
+tag. `RequestAck` is used to ask that nodes send an "ack" once the message is received,
+otherwise only responses are delivered. `Timeout` can be provided (in nanoseconds) to
+optionally override the default.
+
+The server will respond with a standard response hedaer indicating if the query
+was successful. However, the channel is now subscribed to receive any acks or
+responses. This is similar to `stream`, except scoped only to this query. The same
+`Seq` is used as the query command that matches.
+
+We will start to get the following:
+
+```
+    {"Seq": 50, "Error": ""}
+    {
+        "Type": "ack",
+        "From": "foo",
+    }
+
+    {"Seq": 50, "Error": ""}
+    {
+        "Type": "response",
+        "From": "foo",
+        "Payload": "1.02",
+    }
+
+    {"Seq": 50, "Error": ""}
+    {
+        "Type": "done",
+    }
+```
+
+Each query record has a `Type` to indicate what is being represented. This is
+one of `ack`, `response` or `done`. Once `done` is received the client should
+not expect any futher messages corresponding to that query.
+
+### respond
+
+The respond command is with `stream` to subscribe to queries and then respond.
+It takes the following request body:
+
+```
+	{"ID": 1023, "Payload": "my response"}
+```
+
+The `ID` is an opaque value that is assigned by the IPC layer. This number is
+unique per client connection and cannot be used across connections. `Payload` is
+just opaque bytes.
+
+There is no special response body.
 

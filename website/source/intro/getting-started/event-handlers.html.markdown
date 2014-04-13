@@ -82,7 +82,11 @@ There are currently four types of events that Serf invokes:
   didn't properly respond to ping requests.
 * `member-update` - One or more members have updated, likely to update the
   associated tags
+* `member-reap` - Serf has removed one or more members from it's list of members.
+  This means a failed node exceeded the `reconnect_timeout`, or a left node reached
+  the `tombstone_timeout`.
 * `user` - A custom user event, covered later in this guide.
+* `query` - A query event, covered later in this guide
 
 ## Multiple Event Scripts, Filtering, And More
 
@@ -94,3 +98,4 @@ for only certain Serf events.
 
 To learn more about these features, see the full documentation section
 of [event handlers](/docs/agent/event-handlers.html).
+
