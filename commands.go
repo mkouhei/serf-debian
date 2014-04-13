@@ -28,6 +28,13 @@ func init() {
 			}, nil
 		},
 
+		"query": func() (cli.Command, error) {
+			return &command.QueryCommand{
+				ShutdownCh: makeShutdownCh(),
+				Ui:         ui,
+			}, nil
+		},
+
 		"force-leave": func() (cli.Command, error) {
 			return &command.ForceLeaveCommand{
 				Ui: ui,
@@ -68,6 +75,13 @@ func init() {
 		"tags": func() (cli.Command, error) {
 			return &command.TagsCommand{
 				Ui: ui,
+			}, nil
+		},
+
+		"reachability": func() (cli.Command, error) {
+			return &command.ReachabilityCommand{
+				ShutdownCh: makeShutdownCh(),
+				Ui:         ui,
 			}, nil
 		},
 
