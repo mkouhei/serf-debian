@@ -7,6 +7,7 @@
 export DH_GOPKG := github.com/hashicorp/serf
 GOPATH := ${CURDIR}/_build:/usr/share/gocode
 BLDPATH := obj-$(shell dpkg-architecture -qDEB_BUILD_GNU_TYPE)
+export LANG := C
 
 export GOPATH
 
@@ -33,8 +34,25 @@ override_dh_auto_install:
 	test -f ${CURDIR}/_build/serf && \
 	install -m 0755 ${CURDIR}/_build/serf ${CURDIR}/debian/serf/usr/bin/
 
+override_dh_installman:
+	test -f ${CURDIR}/_build/serf && \
+	${CURDIR}/_build/serf -h 2>&1 | txt2man -t SERF -s 1 -v 'Serf Manual' > ${CURDIR}/debian/serf.1
+	set -e && ${CURDIR}/_build/serf -h 2>&1 | grep -v version | grep -E '^\s+\w+' | while read line; do \
+		subcmd=`echo $$line | awk '{print $$1}'`;\
+		desc=`echo $$line | awk '{ $$1=""; print }'`;\
+		${CURDIR}/_build/serf $$subcmd -h 2>&1 | txt2man -t SERF-`echo $$subcmd | tr "[:lower:]" "[:upper:]"` -s 1 -v 'Serf Manual' > $(CURDIR)/debian/serf-$$subcmd.1; \
+		sed -i "/Serf Manual/a .SH NAME\nserf-$$subcmd \- $$desc" $(CURDIR)/debian/serf-$$subcmd.1 ;\
+	done
+	sed -i '/Serf Manual/a .SH NAME\nserf \- Service orchestration and management tool' $(CURDIR)/debian/serf.1
+	sed -i '/[Uu]sage:/i .SH SYNOPSIS' $(CURDIR)/debian/serf*.1
+	sed -i '/Available commands are:/i .SH OPTIONS' $(CURDIR)/debian/serf*.1
+	sed -i 's/^Options:/.SH OPTIONS/g' $(CURDIR)/debian/serf*.1
+	sed -i 's/-/\\-/g' $(CURDIR)/debian/serf*.1
+	dh_installman ${CURDIR}/debian/serf*.1
+
 override_dh_auto_clean:
 	dh_clean
 	rm -rf ${CURDIR}/_build
 	rm -rf ${CURDIR}/${BLDPATH}
+	rm -f ${CURDIR}/debian/serf*.1
 

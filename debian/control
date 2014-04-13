@@ -11,7 +11,8 @@ Build-Depends: debhelper (>= 9.0.0),
 	golang-mitchellh-mapstructure-dev,
 	golang-ugorji-go-dev,
 	golang-armon-mdns-dev (>= 0.0~git20140225~8be7e3a),
-	golang-ryanuber-columnize-dev
+	golang-ryanuber-columnize-dev,
+	txt2man
 Standards-Version: 3.9.5
 Homepage: http://www.serfdom.io/
 
