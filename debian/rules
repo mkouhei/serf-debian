@@ -26,8 +26,8 @@ override_dh_auto_test:
 	go list ./... | INTEG_TESTS=yes xargs -n1 go test
 
 override_dh_auto_install:
-	install -d ${CURDIR}/debian/golang-serf-dev
-	dh_auto_install -O-buildsystem=golang --destdir=${CURDIR}/debian/golang-serf-dev/
+	#install -d ${CURDIR}/debian/golang-serf-dev
+	#dh_auto_install -O-buildsystem=golang --destdir=${CURDIR}/debian/golang-serf-dev/
 
 	install -d ${CURDIR}/debian/serf/usr/bin
 	test -f ${CURDIR}/_build/serf && \
