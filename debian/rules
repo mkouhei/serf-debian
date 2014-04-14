@@ -16,7 +16,7 @@ export GOPATH
 
 override_dh_auto_build:
 	mkdir -p ${CURDIR}/_build/src/${DH_GOPKG}
-	cp -a ${CURDIR}/*.go ${CURDIR}/serf ${CURDIR}/website ${CURDIR}/client \
+	cp -a ${CURDIR}/*.go ${CURDIR}/serf ${CURDIR}/client \
 		${CURDIR}/command ${CURDIR}/testutil ${CURDIR}/_build/src/${DH_GOPKG}/
 	go build -v -o ${CURDIR}/_build/serf
 
