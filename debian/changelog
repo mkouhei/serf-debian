@@ -1,4 +1,4 @@
-golang-serf (0.5.0-1) unstable; urgency=low
+golang-serf (0.5.0+dfsg-1) unstable; urgency=low
 
   * Initial release (Closes: #nnnn)
 

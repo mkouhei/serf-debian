@@ -56,3 +56,14 @@ override_dh_auto_clean:
 	rm -rf ${CURDIR}/${BLDPATH}
 	rm -f ${CURDIR}/debian/serf*.1
 
+DEB_UPSTREAM_VERSION=$(shell dpkg-parsechangelog | sed -rne 's,^Version: ([^+]+).*,\1,p')
+get-orig-source:
+	uscan --noconf --force-download --rename --download-current-version --destdir=.
+	rm -rf serf-$(DEB_UPSTREAM_VERSION)
+	tar xf golang-serf_$(DEB_UPSTREAM_VERSION).orig.tar.gz
+	rm -f golang-serf_$(DEB_UPSTREAM_VERSION).orig.tar.gz
+	rm -rf serf-$(DEB_UPSTREAM_VERSION)/website
+	GZIP=--best tar cz --owner root --group root --mode a+rX \
+		-f ../golang-serf-$(DEB_UPSTREAM_VERSION)+dfsg.orig.tar.gz \
+		serf-$(DEB_UPSTREAM_VERSION)
+	rm -rf serf-$(DEB_UPSTREAM_VERSION)
