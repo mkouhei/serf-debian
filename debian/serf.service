@@ -1,0 +1,18 @@
+[Unit]
+Description=Serf Agent
+ConditionPathExists=/etc/serf/
+After=network.target
+
+[Service]
+Type=simple
+User=serf
+Group=serf
+ExecStart=/usr/bin/serf agent -config-dir=/etc/serf
+KillSignal=SIGINT
+Restart=always
+RestartSec=10
+ExecReload=/bin/kill -HUP $MAINPID
+
+[Install]
+WantedBy=multi-user.target
+

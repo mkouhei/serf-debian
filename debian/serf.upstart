@@ -1,0 +1,20 @@
+# Upstart script for yrmcds
+
+description     "Serf Agent"
+
+start on (local-filesystems and net-device-up IFACE!=lo)
+stop on runlevel [!2345]
+
+kill signal INT
+respawn
+kill timeout 90
+
+env SERF=/usr/bin/serf
+env SERF_CFG_DIR=/etc/serf/
+env SERF_LOG=/var/log/serf.log
+
+setuid serf
+setgid serf
+
+exec $SERF agent -config-dir=$SERF_CFG_DIR >> $SERF_LOG 2>&1
+post-stop exec sleep 10

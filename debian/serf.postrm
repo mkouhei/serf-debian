@@ -1,0 +1,25 @@
+#!/bin/sh
+# postrm script for serf
+#
+# see: dh_installdeb(1)
+
+set -e
+
+#DEBHELPER#
+
+if [ "$1" = "purge" ]; then
+        rm -f /var/log/serf.log
+	rm -f /etc/systemd/system/serf.service
+        rm -f /etc/systemd/system/multi-user.target.wants/serf.service
+
+	rm -f /var/lib/systemd/deb-systemd-helper-enabled/serf.service.dsh-also
+        rm -f /var/lib/systemd/deb-systemd-helper-enabled/multi-user.target.wants/serf.service
+	rm -f /var/lib/systemd/deb-systemd-helper-masked/serf.service
+	rm -rf /etc/serf/
+
+        deluser --quiet --system serf || true
+        delgroup --quiet --system --only-if-empty serf || true
+fi
+
+
+exit 0

@@ -18,7 +18,7 @@ Homepage: http://www.serfdom.io/
 
 Package: serf
 Architecture: any
-Depends: ${shlibs:Depends}, ${misc:Depends}
+Depends: ${shlibs:Depends}, ${misc:Depends}, adduser
 Description: Service orchestration and management tool
  Serf is a service discovery and orchestration tool that is decentralized,
  highly available, and fault tolerant. Serf runs on every major platform:
