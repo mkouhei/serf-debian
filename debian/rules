@@ -12,7 +12,7 @@ export LANG := C
 export GOPATH
 
 %:
-	dh $@ --buildsystem=golang --with=golang
+	dh $@ --buildsystem=golang --with=golang,systemd
 
 override_dh_auto_build:
 	mkdir -p ${CURDIR}/_build/src/${DH_GOPKG}
