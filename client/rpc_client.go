@@ -165,6 +165,10 @@ func ClientFromConfig(c *Config) (*RPCClient, error) {
 // StreamHandle is an opaque handle passed to stop to stop streaming
 type StreamHandle uint64
 
+func (c *RPCClient) IsClosed() bool {
+	return c.shutdown
+}
+
 // Close is used to free any resources associated with the client
 func (c *RPCClient) Close() error {
 	c.shutdownLock.Lock()
@@ -286,6 +290,79 @@ func (c *RPCClient) Respond(id uint64, buf []byte) error {
 		Payload: buf,
 	}
 	return c.genericRPC(&header, &req, nil)
+}
+
+// IntallKey installs a new encryption key onto the keyring
+func (c *RPCClient) InstallKey(key string) (map[string]string, error) {
+	header := requestHeader{
+		Command: installKeyCommand,
+		Seq:     c.getSeq(),
+	}
+	req := keyRequest{
+		Key: key,
+	}
+
+	resp := keyResponse{}
+	err := c.genericRPC(&header, &req, &resp)
+
+	return resp.Messages, err
+}
+
+// UseKey changes the primary encryption key on the keyring
+func (c *RPCClient) UseKey(key string) (map[string]string, error) {
+	header := requestHeader{
+		Command: useKeyCommand,
+		Seq:     c.getSeq(),
+	}
+	req := keyRequest{
+		Key: key,
+	}
+
+	resp := keyResponse{}
+	err := c.genericRPC(&header, &req, &resp)
+
+	return resp.Messages, err
+}
+
+// RemoveKey changes the primary encryption key on the keyring
+func (c *RPCClient) RemoveKey(key string) (map[string]string, error) {
+	header := requestHeader{
+		Command: removeKeyCommand,
+		Seq:     c.getSeq(),
+	}
+	req := keyRequest{
+		Key: key,
+	}
+
+	resp := keyResponse{}
+	err := c.genericRPC(&header, &req, &resp)
+
+	return resp.Messages, err
+}
+
+// ListKeys returns all of the active keys on each member of the cluster
+func (c *RPCClient) ListKeys() (map[string]int, int, map[string]string, error) {
+	header := requestHeader{
+		Command: listKeysCommand,
+		Seq:     c.getSeq(),
+	}
+
+	resp := keyResponse{}
+	err := c.genericRPC(&header, nil, &resp)
+
+	return resp.Keys, resp.NumNodes, resp.Messages, err
+}
+
+// Stats is used to get debugging state information
+func (c *RPCClient) Stats() (map[string]map[string]string, error) {
+	header := requestHeader{
+		Command: statsCommand,
+		Seq:     c.getSeq(),
+	}
+	var resp map[string]map[string]string
+
+	err := c.genericRPC(&header, nil, &resp)
+	return resp, err
 }
 
 type monitorHandler struct {

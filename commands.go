@@ -53,6 +53,12 @@ func init() {
 			}, nil
 		},
 
+		"keys": func() (cli.Command, error) {
+			return &command.KeysCommand{
+				Ui: ui,
+			}, nil
+		},
+
 		"leave": func() (cli.Command, error) {
 			return &command.LeaveCommand{
 				Ui: ui,
@@ -82,6 +88,12 @@ func init() {
 			return &command.ReachabilityCommand{
 				ShutdownCh: makeShutdownCh(),
 				Ui:         ui,
+			}, nil
+		},
+
+		"info": func() (cli.Command, error) {
+			return &command.InfoCommand{
+				Ui: ui,
 			}, nil
 		},
 

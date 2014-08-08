@@ -36,13 +36,7 @@ type MemberContainer struct {
 func (c MemberContainer) String() string {
 	var result []string
 	for _, member := range c.Members {
-		// Format the tags as tag1=v1,tag2=v2,...
-		var tagPairs []string
-		for name, value := range member.Tags {
-			tagPairs = append(tagPairs, fmt.Sprintf("%s=%s", name, value))
-		}
-		tags := strings.Join(tagPairs, ",")
-
+		tags := strings.Join(agent.MarshalTags(member.Tags), ",")
 		line := fmt.Sprintf("%s|%s|%s|%s",
 			member.Name, member.Addr, member.Status, tags)
 		if member.detail {
@@ -52,8 +46,7 @@ func (c MemberContainer) String() string {
 		}
 		result = append(result, line)
 	}
-	output, _ := columnize.SimpleFormat(result)
-	return output
+	return columnize.SimpleFormat(result)
 }
 
 func (c *MembersCommand) Help() string {
@@ -71,11 +64,14 @@ Options:
                             format. Valid formats are 'json', and 'text' (default)
 
   -name=<regexp>            If provided, only members matching the regexp are
-                            returned.
+                            returned. The regexp is anchored at the start and end,
+                            and must be a full match.
 
   -role=<regexp>            If provided, output is filtered to only nodes matching
                             the regular expression for role
                             '-role' is deprecated in favor of '-tag role=foo'.
+                            The regexp is anchored at the start and end, and must be
+                            a full match.
 
   -status=<regexp>          If provided, output is filtered to only nodes matching
                             the regular expression for status
@@ -83,7 +79,8 @@ Options:
   -tag <key>=<regexp>       If provided, output is filtered to only nodes with the
                             tag <key> with value matching the regular expression.
                             tag can be specified multiple times to filter on
-                            multiple keys.
+                            multiple keys. The regexp is anchored at the start and end,
+                            and must be a full match.
 
   -rpc-addr=127.0.0.1:7373  RPC address of the Serf agent.
 
@@ -116,14 +113,10 @@ func (c *MembersCommand) Run(args []string) int {
 		tags = append(tags, fmt.Sprintf("role=%s", roleFilter))
 	}
 
-	reqtags := make(map[string]string)
-	for _, tag := range tags {
-		parts := strings.SplitN(tag, "=", 2)
-		if len(parts) != 2 {
-			c.Ui.Error(fmt.Sprintf("Invalid tag '%s' provided", tag))
-			return 1
-		}
-		reqtags[parts[0]] = parts[1]
+	reqtags, err := agent.UnmarshalTags(tags)
+	if err != nil {
+		c.Ui.Error(fmt.Sprintf("Error: %s", err))
+		return 1
 	}
 
 	client, err := RPCClient(*rpcAddr, *rpcAuth)
