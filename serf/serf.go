@@ -2,11 +2,14 @@ package serf
 
 import (
 	"bytes"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/armon/go-metrics"
 	"github.com/hashicorp/memberlist"
 	"github.com/ugorji/go/codec"
+	"io/ioutil"
 	"log"
 	"math/rand"
 	"net"
@@ -86,6 +89,7 @@ type Serf struct {
 	shutdownCh chan struct{}
 
 	snapshotter *Snapshotter
+	keyManager  *keyManager
 }
 
 // SerfState is the state of the Serf instance.
@@ -273,8 +277,13 @@ func Create(conf *Config) (*Serf, error) {
 	var oldClock, oldEventClock, oldQueryClock LamportTime
 	var prev []*PreviousNode
 	if conf.SnapshotPath != "" {
-		eventCh, snap, err := NewSnapshotter(conf.SnapshotPath, snapshotSizeLimit,
-			serf.logger, &serf.clock, conf.EventCh, serf.shutdownCh)
+		eventCh, snap, err := NewSnapshotter(conf.SnapshotPath,
+			snapshotSizeLimit,
+			conf.RejoinAfterLeave,
+			serf.logger,
+			&serf.clock,
+			conf.EventCh,
+			serf.shutdownCh)
 		if err != nil {
 			return nil, fmt.Errorf("Failed to setup snapshot: %v", err)
 		}
@@ -347,6 +356,9 @@ func Create(conf *Config) (*Serf, error) {
 
 	serf.memberlist = memberlist
 
+	// Create a key manager for handling all encryption key changes
+	serf.keyManager = &keyManager{serf: serf}
+
 	// Start the background tasks. See the documentation above each method
 	// for more information on their role.
 	go serf.handleReap()
@@ -367,6 +379,19 @@ func Create(conf *Config) (*Serf, error) {
 // This is the Serf protocol version, not the memberlist protocol version.
 func (s *Serf) ProtocolVersion() uint8 {
 	return s.config.ProtocolVersion
+}
+
+// EncryptionEnabled is a predicate that determines whether or not encryption
+// is enabled, which can be possible in one of 2 cases:
+//   - Single encryption key passed at agent start (no persistence)
+//   - Keyring file provided at agent start
+func (s *Serf) EncryptionEnabled() bool {
+	return s.config.MemberlistConfig.Keyring != nil
+}
+
+// KeyManager returns the key manager for the current Serf instance.
+func (s *Serf) KeyManager() *keyManager {
+	return s.keyManager
 }
 
 // UserEvent is used to broadcast a custom user event with a given
@@ -726,7 +751,7 @@ func (s *Serf) Shutdown() error {
 	}
 
 	if s.state != SerfLeft {
-		s.logger.Println("[WARN] Shutdown without a Leave")
+		s.logger.Printf("[WARN] serf: Shutdown without a Leave")
 	}
 
 	s.state = SerfShutdown
@@ -1266,7 +1291,6 @@ func (s *Serf) resolveNodeConflict() {
 	var responses, matching int
 
 	// Gather responses
-	member := new(Member)
 	respCh := resp.ResponseCh()
 	for r := range respCh {
 		// Decode the response
@@ -1274,7 +1298,8 @@ func (s *Serf) resolveNodeConflict() {
 			s.logger.Printf("[ERR] serf: Invalid conflict query response type: %v", r.Payload)
 			continue
 		}
-		if err := decodeMessage(r.Payload[1:], member); err != nil {
+		var member Member
+		if err := decodeMessage(r.Payload[1:], &member); err != nil {
 			s.logger.Printf("[ERR] serf: Failed to decode conflict query response: %v", err)
 			continue
 		}
@@ -1398,13 +1423,13 @@ func (s *Serf) reconnect() {
 	idx := int(rand.Uint32() % uint32(n))
 	mem := s.failedMembers[idx]
 	s.memberLock.RUnlock()
-	s.logger.Printf("[INFO] serf: attempting reconnect to %v %v", mem.Name, net.IP(mem.Addr))
 
 	// Format the addr
-	addr := mem.Addr.String()
+	addr := net.UDPAddr{IP: mem.Addr, Port: int(mem.Port)}
+	s.logger.Printf("[INFO] serf: attempting reconnect to %v %s", mem.Name, addr.String())
 
 	// Attempt to join at the memberlist level
-	s.memberlist.Join([]string{addr})
+	s.memberlist.Join([]string{addr.String()})
 }
 
 // checkQueueDepth periodically checks the size of a queue to see if
@@ -1507,14 +1532,13 @@ func (s *Serf) decodeTags(buf []byte) map[string]string {
 	if len(buf) == 0 || buf[0] != tagMagicByte {
 		tags["role"] = string(buf)
 		return tags
-
 	}
 
 	// Decode the tags
 	r := bytes.NewReader(buf[1:])
 	dec := codec.NewDecoder(r, &codec.MsgpackHandle{})
 	if err := dec.Decode(&tags); err != nil {
-		s.logger.Printf("[ERR] Failed to decode tags: %v", err)
+		s.logger.Printf("[ERR] serf: Failed to decode tags: %v", err)
 	}
 	return tags
 }
@@ -1536,4 +1560,32 @@ func (s *Serf) Stats() map[string]string {
 		"query_queue":  toString(uint64(s.queryBroadcasts.NumQueued())),
 	}
 	return stats
+}
+
+// WriteKeyringFile will serialize the current keyring and save it to a file.
+func (s *Serf) writeKeyringFile() error {
+	if len(s.config.KeyringFile) == 0 {
+		return nil
+	}
+
+	keyring := s.config.MemberlistConfig.Keyring
+	keysRaw := keyring.GetKeys()
+	keysEncoded := make([]string, len(keysRaw))
+
+	for i, key := range keysRaw {
+		keysEncoded[i] = base64.StdEncoding.EncodeToString(key)
+	}
+
+	encodedKeys, err := json.MarshalIndent(keysEncoded, "", "  ")
+	if err != nil {
+		return fmt.Errorf("Failed to encode keys: %s", err)
+	}
+
+	// Use 0600 for permissions because key data is sensitive
+	if err = ioutil.WriteFile(s.config.KeyringFile, encodedKeys, 0600); err != nil {
+		return fmt.Errorf("Failed to write keyring file: %s", err)
+	}
+
+	// Success!
+	return nil
 }

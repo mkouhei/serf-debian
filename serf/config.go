@@ -172,15 +172,25 @@ type Config struct {
 	// succeeds and will also avoid replaying old user events.
 	SnapshotPath string
 
+	// RejoinAfterLeave controls our interaction with the snapshot file.
+	// When set to false (default), a leave causes a Serf to not rejoin
+	// the cluster until an explicit join is received. If this is set to
+	// true, we ignore the leave, and rejoin the cluster on start.
+	RejoinAfterLeave bool
+
 	// EnableNameConflictResolution controls if Serf will actively attempt
 	// to resolve a name conflict. Since each Serf member must have a unique
-	// name, a cluster can run into issues if multiple nodes claim the same name.
-	// Without automatic resolution, Serf merely logs some warnings, but otherwise
-	// does not take any action. Automatic resolution detects the conflict and issues
-	// a special query which asks the cluster for the Name -> IP:Port mapping. If there
-	// is a simple majority of votes, that node stays while the other node will leave
-	// the cluster and exit.
+	// name, a cluster can run into issues if multiple nodes claim the same
+	// name. Without automatic resolution, Serf merely logs some warnings, but
+	// otherwise does not take any action. Automatic resolution detects the
+	// conflict and issues a special query which asks the cluster for the
+	// Name -> IP:Port mapping. If there is a simple majority of votes, that
+	// node stays while the other node will leave the cluster and exit.
 	EnableNameConflictResolution bool
+
+	// KeyringFile provides the location of a writable file where Serf can
+	// persist changes to the encryption keyring.
+	KeyringFile string
 }
 
 // Init allocates the subdata structures

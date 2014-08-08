@@ -1,3 +1,106 @@
+## 0.6.3 (July 10, 2014)
+
+IMPROVEMENTS:
+
+* Added `statsite_addr` configuration to stream to statsite
+
+BUG FIXES:
+
+* Fixed issue with mDNS flooding when using IPv4 and IPv6
+* Fixed issue with reloading event handlers
+
+MISC:
+
+* Improved failure detection reliability under load
+* Reduced fsync() use in snapshot file
+* Improved snapshot file performance
+* Additional logging to help debug flapping
+
+## 0.6.2 (June 16, 2014)
+
+IMPROVEMENTS:
+
+* Added `syslog_facility` configuration to set facility
+
+BUG FIXES:
+
+* Fixed memory leak in in-memory stats system
+* Fixed issue that would cause syslog to deadlock
+
+MISC:
+
+* Fixed missing prefixes on some log messages
+* Docs fixes
+
+## 0.6.1 (May 29, 2014)
+
+BUG FIXES:
+
+* On Windows, a "failed to decode request header" error will no
+  longer be shown on every RPC request.
+
+* Avoiding holding a lock which can cause monitor/stream commands to
+  fail when an event handler is blocking
+
+* Fixing conflict response decoding errors
+
+IMPROVEMENTS:
+
+* Improved agent CLI usage documentation
+
+* Warn if an event handler is slow, potentially blocking other events
+
+## 0.6.0 (May 8, 2014)
+
+FEATURES:
+
+ * Support for key rotation when using encryption. This adds a new
+ `serf keys` command, and a `-keyring-file` configuration. Thanks
+ to @ryanuber.
+
+ * New `-tags-file` can be specified to persist changes to tags made
+ via the RPC interface. Thanks to @ryanuber.
+
+ * New `serf info` command to provide operator debugging information,
+ and to get info about the local node.
+
+ * Adding `-retry-join` flag to agent which enables retrying the join
+ until success or `-retry-max` attempts have been made.
+
+IMPROVEMENTS:
+
+ * New `-rejoin` flag can be used along with a snapshot file to
+ automatically rejoin a cluster.
+
+ * Agent uses circular buffer to invoke handlers, guards against unbounded
+ output lengths.
+
+ * Adding support for logging to syslog
+
+ * The SERF_RPC_ADDR environment variable can be used instead of the
+ `-rpc-addr` flags. Thanks to @lalyos [GH-209].
+
+ * `serf query` can now output the results in a JSON format.
+
+ * Unknown configuration directives generate an error [GH-186].
+ Thanks to @vincentbernat.
+
+BUG FIXES:
+
+ * Fixing environmental variables with invalid characters. [GH-200].
+ Thanks to @arschles.
+
+ * Fixing issue with tag changes with hard restart before
+   failure detection.
+
+ * Fixing issue with reconnect when using dynamic ports.
+
+MISC:
+
+ * Improved logging of various error messages
+
+ * Improved debian packaging. Thanks to @vincentbernat.
+
 ## 0.5.0 (March 12, 2014)
 
 FEATURES:

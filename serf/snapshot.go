@@ -24,30 +24,32 @@ nodes to re-join, as well as restore our clock values to avoid replaying
 old events.
 */
 
-const fsyncInterval = 100 * time.Millisecond
+const flushInterval = 500 * time.Millisecond
 const clockUpdateInterval = 500 * time.Millisecond
 const tmpExt = ".compact"
 
 // Snapshotter is responsible for ingesting events and persisting
 // them to disk, and providing a recovery mechanism at start time.
 type Snapshotter struct {
-	aliveNodes     map[string]string
-	clock          *LamportClock
-	fh             *os.File
-	inCh           <-chan Event
-	lastFsync      time.Time
-	lastClock      LamportTime
-	lastEventClock LamportTime
-	lastQueryClock LamportTime
-	leaveCh        chan struct{}
-	leaving        bool
-	logger         *log.Logger
-	maxSize        int64
-	path           string
-	offset         int64
-	outCh          chan<- Event
-	shutdownCh     <-chan struct{}
-	waitCh         chan struct{}
+	aliveNodes       map[string]string
+	clock            *LamportClock
+	fh               *os.File
+	buffered         *bufio.Writer
+	inCh             <-chan Event
+	lastFlush        time.Time
+	lastClock        LamportTime
+	lastEventClock   LamportTime
+	lastQueryClock   LamportTime
+	leaveCh          chan struct{}
+	leaving          bool
+	logger           *log.Logger
+	maxSize          int64
+	path             string
+	offset           int64
+	outCh            chan<- Event
+	rejoinAfterLeave bool
+	shutdownCh       <-chan struct{}
+	waitCh           chan struct{}
 }
 
 // PreviousNode is used to represent the previously known alive nodes
@@ -64,8 +66,15 @@ func (p PreviousNode) String() string {
 // max byte size before rotating the file. It can also be used to
 // recover old state. Snapshotter works by reading an event channel it returns,
 // passing through to an output channel, and persisting relevant events to disk.
-func NewSnapshotter(path string, maxSize int, logger *log.Logger, clock *LamportClock,
-	outCh chan<- Event, shutdownCh <-chan struct{}) (chan<- Event, *Snapshotter, error) {
+// Setting rejoinAfterLeave makes leave not clear the state, and can be used
+// if you intend to rejoin the same cluster after a leave.
+func NewSnapshotter(path string,
+	maxSize int,
+	rejoinAfterLeave bool,
+	logger *log.Logger,
+	clock *LamportClock,
+	outCh chan<- Event,
+	shutdownCh <-chan struct{}) (chan<- Event, *Snapshotter, error) {
 	inCh := make(chan Event, 1024)
 
 	// Try to open the file
@@ -84,21 +93,23 @@ func NewSnapshotter(path string, maxSize int, logger *log.Logger, clock *Lamport
 
 	// Create the snapshotter
 	snap := &Snapshotter{
-		aliveNodes:     make(map[string]string),
-		clock:          clock,
-		fh:             fh,
-		inCh:           inCh,
-		lastClock:      0,
-		lastEventClock: 0,
-		lastQueryClock: 0,
-		leaveCh:        make(chan struct{}),
-		logger:         logger,
-		maxSize:        int64(maxSize),
-		path:           path,
-		offset:         offset,
-		outCh:          outCh,
-		shutdownCh:     shutdownCh,
-		waitCh:         make(chan struct{}),
+		aliveNodes:       make(map[string]string),
+		clock:            clock,
+		fh:               fh,
+		buffered:         bufio.NewWriter(fh),
+		inCh:             inCh,
+		lastClock:        0,
+		lastEventClock:   0,
+		lastQueryClock:   0,
+		leaveCh:          make(chan struct{}),
+		logger:           logger,
+		maxSize:          int64(maxSize),
+		path:             path,
+		offset:           offset,
+		outCh:            outCh,
+		rejoinAfterLeave: rejoinAfterLeave,
+		shutdownCh:       shutdownCh,
+		waitCh:           make(chan struct{}),
 	}
 
 	// Recover the last known state
@@ -162,10 +173,16 @@ func (s *Snapshotter) stream() {
 	for {
 		select {
 		case <-s.leaveCh:
-			// Clear the known nodes
-			s.aliveNodes = make(map[string]string)
 			s.leaving = true
+
+			// If we plan to re-join, keep our state
+			if !s.rejoinAfterLeave {
+				s.aliveNodes = make(map[string]string)
+			}
 			s.tryAppend("leave\n")
+			if err := s.buffered.Flush(); err != nil {
+				s.logger.Printf("[ERR] serf: failed to flush leave to snapshot: %v", err)
+			}
 			if err := s.fh.Sync(); err != nil {
 				s.logger.Printf("[ERR] serf: failed to sync leave to snapshot: %v", err)
 			}
@@ -195,6 +212,9 @@ func (s *Snapshotter) stream() {
 			s.updateClock()
 
 		case <-s.shutdownCh:
+			if err := s.buffered.Flush(); err != nil {
+				s.logger.Printf("[ERR] serf: failed to flush snapshot: %v", err)
+			}
 			if err := s.fh.Sync(); err != nil {
 				s.logger.Printf("[ERR] serf: failed to sync snapshot: %v", err)
 			}
@@ -268,16 +288,16 @@ func (s *Snapshotter) tryAppend(l string) {
 func (s *Snapshotter) appendLine(l string) error {
 	defer metrics.MeasureSince([]string{"serf", "snapshot", "appendLine"}, time.Now())
 
-	n, err := s.fh.WriteString(l)
+	n, err := s.buffered.WriteString(l)
 	if err != nil {
 		return err
 	}
 
-	// Check if we should fsync
+	// Check if we should flush
 	now := time.Now()
-	if now.Sub(s.lastFsync) > fsyncInterval {
-		s.lastFsync = now
-		if err := s.fh.Sync(); err != nil {
+	if now.Sub(s.lastFlush) > flushInterval {
+		s.lastFlush = now
+		if err := s.buffered.Flush(); err != nil {
 			return err
 		}
 	}
@@ -301,11 +321,14 @@ func (s *Snapshotter) compact() error {
 		return fmt.Errorf("failed to open new snapshot: %v", err)
 	}
 
+	// Create a buffered writer
+	buf := bufio.NewWriter(fh)
+
 	// Write out the live nodes
 	var offset int64
 	for name, addr := range s.aliveNodes {
 		line := fmt.Sprintf("alive: %s %s\n", name, addr)
-		n, err := fh.WriteString(line)
+		n, err := buf.WriteString(line)
 		if err != nil {
 			fh.Close()
 			return err
@@ -315,7 +338,7 @@ func (s *Snapshotter) compact() error {
 
 	// Write out the clocks
 	line := fmt.Sprintf("clock: %d\n", s.lastClock)
-	n, err := fh.WriteString(line)
+	n, err := buf.WriteString(line)
 	if err != nil {
 		fh.Close()
 		return err
@@ -323,7 +346,7 @@ func (s *Snapshotter) compact() error {
 	offset += int64(n)
 
 	line = fmt.Sprintf("event-clock: %d\n", s.lastEventClock)
-	n, err = fh.WriteString(line)
+	n, err = buf.WriteString(line)
 	if err != nil {
 		fh.Close()
 		return err
@@ -331,12 +354,18 @@ func (s *Snapshotter) compact() error {
 	offset += int64(n)
 
 	line = fmt.Sprintf("query-clock: %d\n", s.lastQueryClock)
-	n, err = fh.WriteString(line)
+	n, err = buf.WriteString(line)
 	if err != nil {
 		fh.Close()
 		return err
 	}
 	offset += int64(n)
+
+	// Flush now
+	if err := buf.Flush(); err != nil {
+		fh.Close()
+		return fmt.Errorf("failed to flush new snapshot: %v", err)
+	}
 
 	// Switch the files
 	if err := os.Rename(newPath, s.path); err != nil {
@@ -347,8 +376,9 @@ func (s *Snapshotter) compact() error {
 	// Rotate our handles
 	s.fh.Close()
 	s.fh = fh
+	s.buffered = buf
 	s.offset = offset
-	s.lastFsync = time.Now()
+	s.lastFlush = time.Now()
 	return nil
 }
 
@@ -416,6 +446,11 @@ func (s *Snapshotter) replay() error {
 			s.lastQueryClock = LamportTime(timeInt)
 
 		} else if line == "leave" {
+			// Ignore a leave if we plan on re-joining
+			if s.rejoinAfterLeave {
+				s.logger.Printf("[INFO] serf: Ignoring previous leave in snapshot")
+				continue
+			}
 			s.aliveNodes = make(map[string]string)
 			s.lastClock = 0
 			s.lastEventClock = 0

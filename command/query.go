@@ -25,6 +25,9 @@ Usage: serf query [options] name payload
 
 Options:
 
+  -format                   If provided, output is returned in the specified
+                            format. Valid formats are 'json', and 'text' (default)
+
   -node=NAME                This flag can be provided multiple times to filter
                             responses to only named nodes.
 
@@ -48,12 +51,14 @@ func (c *QueryCommand) Run(args []string) int {
 	var nodes []string
 	var tags []string
 	var timeout time.Duration
+	var format string
 	cmdFlags := flag.NewFlagSet("event", flag.ContinueOnError)
 	cmdFlags.Usage = func() { c.Ui.Output(c.Help()) }
 	cmdFlags.Var((*agent.AppendSliceValue)(&nodes), "node", "node filter")
 	cmdFlags.Var((*agent.AppendSliceValue)(&tags), "tag", "tag filter")
 	cmdFlags.DurationVar(&timeout, "timeout", 0, "query timeout")
 	cmdFlags.BoolVar(&noAck, "no-ack", false, "no-ack")
+	cmdFlags.StringVar(&format, "format", "text", "output format")
 	rpcAddr := RPCAddrFlag(cmdFlags)
 	rpcAuth := RPCAuthFlag(cmdFlags)
 	if err := cmdFlags.Parse(args); err != nil {
@@ -61,14 +66,10 @@ func (c *QueryCommand) Run(args []string) int {
 	}
 
 	// Setup the filter tags
-	filterTags := make(map[string]string)
-	for _, tag := range tags {
-		parts := strings.SplitN(tag, "=", 2)
-		if len(parts) != 2 {
-			c.Ui.Error(fmt.Sprintf("Invalid tag '%s' provided", tag))
-			return 1
-		}
-		filterTags[parts[0]] = parts[1]
+	filterTags, err := agent.UnmarshalTags(tags)
+	if err != nil {
+		c.Ui.Error(fmt.Sprintf("Error: %s", err))
+		return 1
 	}
 
 	args = cmdFlags.Args()
@@ -97,6 +98,25 @@ func (c *QueryCommand) Run(args []string) int {
 	}
 	defer cl.Close()
 
+	// Setup the the response handler
+	var handler queryRespFormat
+	switch format {
+	case "text":
+		handler = &textQueryRespFormat{
+			ui:    c.Ui,
+			name:  name,
+			noAck: noAck,
+		}
+	case "json":
+		handler = &jsonQueryRespFormat{
+			ui:        c.Ui,
+			Responses: make(map[string]string),
+		}
+	default:
+		c.Ui.Error(fmt.Sprintf("Invalid format: %s", format))
+		return 1
+	}
+
 	ackCh := make(chan string, 128)
 	respCh := make(chan client.NodeResponse, 128)
 
@@ -114,11 +134,7 @@ func (c *QueryCommand) Run(args []string) int {
 		c.Ui.Error(fmt.Sprintf("Error sending query: %s", err))
 		return 1
 	}
-	c.Ui.Output(fmt.Sprintf("Query '%s' dispatched", name))
-
-	// Track responses and acknowledgements
-	numAcks := 0
-	numResp := 0
+	handler.Started()
 
 OUTER:
 	for {
@@ -127,35 +143,99 @@ OUTER:
 			if a == "" {
 				break OUTER
 			}
-			numAcks++
-			c.Ui.Info(fmt.Sprintf("Ack from '%s'", a))
+			handler.AckReceived(a)
 
 		case r := <-respCh:
 			if r.From == "" {
 				break OUTER
 			}
-			numResp++
-
-			// Remove the trailing newline if there is one
-			payload := r.Payload
-			if n := len(payload); n > 0 && payload[n-1] == '\n' {
-				payload = payload[:n-1]
-			}
-
-			c.Ui.Info(fmt.Sprintf("Response from '%s': %s", r.From, payload))
+			handler.ResponseReceived(r)
 
 		case <-c.ShutdownCh:
 			return 1
 		}
 	}
 
-	if !noAck {
-		c.Ui.Output(fmt.Sprintf("Total Acks: %d", numAcks))
+	if err := handler.Finished(); err != nil {
+		return 1
 	}
-	c.Ui.Output(fmt.Sprintf("Total Responses: %d", numResp))
 	return 0
 }
 
 func (c *QueryCommand) Synopsis() string {
 	return "Send a query to the Serf cluster"
+}
+
+// queryRespFormat is used to switch our handler based on the format
+type queryRespFormat interface {
+	Started()
+	AckReceived(from string)
+	ResponseReceived(resp client.NodeResponse)
+	Finished() error
+}
+
+// textQueryRespFormat is used to output the results in a human-readable
+// format that is streamed as results come in
+type textQueryRespFormat struct {
+	ui      cli.Ui
+	name    string
+	noAck   bool
+	numAcks int
+	numResp int
+}
+
+func (t *textQueryRespFormat) Started() {
+	t.ui.Output(fmt.Sprintf("Query '%s' dispatched", t.name))
+}
+
+func (t *textQueryRespFormat) AckReceived(from string) {
+	t.numAcks++
+	t.ui.Info(fmt.Sprintf("Ack from '%s'", from))
+}
+
+func (t *textQueryRespFormat) ResponseReceived(r client.NodeResponse) {
+	t.numResp++
+
+	// Remove the trailing newline if there is one
+	payload := r.Payload
+	if n := len(payload); n > 0 && payload[n-1] == '\n' {
+		payload = payload[:n-1]
+	}
+
+	t.ui.Info(fmt.Sprintf("Response from '%s': %s", r.From, payload))
+}
+
+func (t *textQueryRespFormat) Finished() error {
+	if !t.noAck {
+		t.ui.Output(fmt.Sprintf("Total Acks: %d", t.numAcks))
+	}
+	t.ui.Output(fmt.Sprintf("Total Responses: %d", t.numResp))
+	return nil
+}
+
+// jsonQueryRespFormat is used to output the results in a JSON format
+type jsonQueryRespFormat struct {
+	ui        cli.Ui
+	Acks      []string
+	Responses map[string]string
+}
+
+func (j *jsonQueryRespFormat) Started() {}
+
+func (j *jsonQueryRespFormat) AckReceived(from string) {
+	j.Acks = append(j.Acks, from)
+}
+
+func (j *jsonQueryRespFormat) ResponseReceived(r client.NodeResponse) {
+	j.Responses[r.From] = string(r.Payload)
+}
+
+func (j *jsonQueryRespFormat) Finished() error {
+	output, err := formatOutput(j, "json")
+	if err != nil {
+		j.ui.Error(fmt.Sprintf("Encoding error: %s", err))
+		return err
+	}
+	j.ui.Output(string(output))
+	return nil
 }

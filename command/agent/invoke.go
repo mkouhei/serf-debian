@@ -1,14 +1,15 @@
 package agent
 
 import (
-	"bytes"
 	"fmt"
+	"github.com/armon/circbuf"
 	"github.com/armon/go-metrics"
 	"github.com/hashicorp/serf/serf"
 	"io"
 	"log"
 	"os"
 	"os/exec"
+	"regexp"
 	"runtime"
 	"strings"
 	"time"
@@ -16,7 +17,17 @@ import (
 
 const (
 	windows = "windows"
+
+	// maxBufSize limits how much data we collect from a handler.
+	// This is to prevent Serf's memory from growing to an enormous
+	// amount due to a faulty handler.
+	maxBufSize = 8 * 1024
+
+	// warnSlow is used to warn about a slow handler invocation
+	warnSlow = time.Second
 )
+
+var sanitizeTagRegexp = regexp.MustCompile(`[^A-Z0-9_]`)
 
 // invokeEventScript will execute the given event script with the given
 // event. Depending on the event, the semantics of how data are passed
@@ -29,7 +40,7 @@ const (
 // the various stdin functions below for more information.
 func invokeEventScript(logger *log.Logger, script string, self serf.Member, event serf.Event) error {
 	defer metrics.MeasureSince([]string{"agent", "invoke", script}, time.Now())
-	var output bytes.Buffer
+	output, _ := circbuf.NewBuffer(maxBufSize)
 
 	// Determine the shell invocation based on OS
 	var shell, flag string
@@ -47,12 +58,17 @@ func invokeEventScript(logger *log.Logger, script string, self serf.Member, even
 		"SERF_SELF_NAME="+self.Name,
 		"SERF_SELF_ROLE="+self.Tags["role"],
 	)
-	cmd.Stderr = &output
-	cmd.Stdout = &output
+	cmd.Stderr = output
+	cmd.Stdout = output
 
 	// Add all the tags
 	for name, val := range self.Tags {
-		tag_env := fmt.Sprintf("SERF_TAG_%s=%s", strings.ToUpper(name), val)
+		//http://stackoverflow.com/questions/2821043/allowed-characters-in-linux-environment-variable-names
+		//(http://pubs.opengroup.org/onlinepubs/000095399/basedefs/xbd_chap08.html for the long version)
+		//says that env var names must be in [A-Z0-9_] and not start with [0-9].
+		//we only care about the first part, so convert all chars not in [A-Z0-9_] to _
+		sanitizedName := sanitizeTagRegexp.ReplaceAllString(strings.ToUpper(name), "_")
+		tag_env := fmt.Sprintf("SERF_TAG_%s=%s", sanitizedName, val)
 		cmd.Env = append(cmd.Env, tag_env)
 	}
 
@@ -76,11 +92,24 @@ func invokeEventScript(logger *log.Logger, script string, self serf.Member, even
 		return fmt.Errorf("Unknown event type: %s", event.EventType().String())
 	}
 
+	// Start a timer to warn about slow handlers
+	slowTimer := time.AfterFunc(warnSlow, func() {
+		logger.Printf("[WARN] agent: Script '%s' slow, execution exceeding %v",
+			script, warnSlow)
+	})
+
 	if err := cmd.Start(); err != nil {
 		return err
 	}
 
+	// Warn if buffer is overritten
+	if output.TotalWritten() > output.Size() {
+		logger.Printf("[WARN] agent: Script '%s' generated %d bytes of output, truncated to %d",
+			script, output.TotalWritten(), output.Size())
+	}
+
 	err = cmd.Wait()
+	slowTimer.Stop()
 	logger.Printf("[DEBUG] agent: Event '%s' script output: %s",
 		event.EventType().String(), output.String())
 	if err != nil {
@@ -88,7 +117,7 @@ func invokeEventScript(logger *log.Logger, script string, self serf.Member, even
 	}
 
 	// If this is a query and we have output, respond
-	if query, ok := event.(*serf.Query); ok && len(output.Bytes()) > 0 {
+	if query, ok := event.(*serf.Query); ok && output.TotalWritten() > 0 {
 		if err := query.Respond(output.Bytes()); err != nil {
 			logger.Printf("[WARN] agent: Failed to respond to query '%s': %s",
 				event.String(), err)
