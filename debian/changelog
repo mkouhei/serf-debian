@@ -1,5 +1,5 @@
-golang-serf (0.5.0+dfsg-1) unstable; urgency=low
+golang-serf (0.6.3+dfsg-1) unstable; urgency=low
 
   * Initial release (Closes: #nnnn)
 
- -- Kouhei Maeda <mkouhei@palmtb.net>  Mon, 14 Apr 2014 05:52:19 +0900
+ -- Kouhei Maeda <mkouhei@palmtb.net>  Fri, 08 Aug 2014 13:58:06 +0900
